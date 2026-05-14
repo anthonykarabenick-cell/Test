@@ -24,6 +24,7 @@ Features engineered:
   - Yield spread vs earnings yield (Fed-model style)
 
 Outputs (under ./results/):
+  - sp500_regression_report.pdf  : full visual report with all charts + summary
   - summary.txt                  : human-readable conclusions for BOTH horizons
   - ols_summary_1m.txt           : full OLS table for the 1-month model
   - ols_summary_3m.txt           : full OLS table for the 3-month model
@@ -51,6 +52,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression, Ridge
@@ -348,6 +350,184 @@ def write_plots(bundle: DataBundle, results: dict[int, dict]) -> None:
         plt.close(fig)
 
 
+def _text_page(pdf: PdfPages, title: str, body: str) -> None:
+    """Render a text block as a PDF page."""
+    fig, ax = plt.subplots(figsize=(8.5, 11))
+    ax.axis("off")
+    ax.text(0.02, 0.97, title, fontsize=16, fontweight="bold", va="top")
+    ax.text(
+        0.02,
+        0.93,
+        body,
+        fontsize=9,
+        family="monospace",
+        va="top",
+        wrap=True,
+    )
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _cover_page(pdf: PdfPages, bundle: DataBundle, results: dict[int, dict]) -> None:
+    fig, ax = plt.subplots(figsize=(8.5, 11))
+    ax.axis("off")
+    ax.text(
+        0.5, 0.92, "S&P 500 Regression Analysis",
+        fontsize=22, fontweight="bold", ha="center",
+    )
+    ax.text(
+        0.5, 0.88, "Multi-horizon forecast report (1m & 3m)",
+        fontsize=13, ha="center", color="#555",
+    )
+
+    span = (
+        f"Data span: {bundle.features.index.min().date()}  ->  "
+        f"{bundle.features.index.max().date()}   "
+        f"({len(bundle.features):,} monthly observations)"
+    )
+    ax.text(0.5, 0.83, span, fontsize=10, ha="center", color="#333")
+    ax.text(
+        0.5, 0.80,
+        "Source: Robert Shiller monthly S&P 500 dataset (github.com/datasets/s-and-p-500)",
+        fontsize=9, ha="center", color="#666",
+    )
+
+    # Verdict box per horizon
+    y = 0.68
+    for h, result in results.items():
+        verdict, pred = current_conclusion(result)
+        m = result["metrics"]
+        ax.text(
+            0.06, y,
+            f"{h}-MONTH FORECAST",
+            fontsize=13, fontweight="bold",
+        )
+        ax.text(
+            0.06, y - 0.035,
+            f"Predicted return:   {pred*100:+.2f}%",
+            fontsize=11, family="monospace",
+        )
+        ax.text(
+            0.06, y - 0.06,
+            f"Verdict:            {verdict}",
+            fontsize=11, family="monospace",
+        )
+        ax.text(
+            0.06, y - 0.085,
+            f"Out-of-sample R^2: {m['ols_test_r2']:+.4f}    "
+            f"Direction accuracy: {m['sign_accuracy_test']*100:.1f}%",
+            fontsize=10, family="monospace", color="#444",
+        )
+        y -= 0.16
+
+    ax.text(
+        0.5, 0.08,
+        f"As-of feature row: {results[1]['latest_date'].date()}",
+        fontsize=9, ha="center", color="#666",
+    )
+    pdf.savefig(fig, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _spx_drawdown_page(pdf: PdfPages, bundle: DataBundle) -> None:
+    fig, axes = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+    axes[0].plot(bundle.raw.index, bundle.raw["SPX"], color="navy")
+    axes[0].set_yscale("log")
+    axes[0].set_title("S&P 500 (nominal, log scale) -- Shiller dataset")
+    dd = bundle.raw["SPX"] / bundle.raw["SPX"].cummax() - 1.0
+    axes[1].fill_between(bundle.raw.index, dd, 0, color="crimson", alpha=0.5)
+    axes[1].set_title("Drawdown from trailing peak")
+    axes[1].set_ylabel("Drawdown")
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _fit_scatter_page(pdf: PdfPages, result: dict) -> None:
+    h = result["horizon_months"]
+    preds = result["predictions"]
+    actual_col = f"actual_fwd_{h}m_ret"
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.scatter(preds[actual_col], preds["ols_pred"], alpha=0.3, s=14)
+    lim = max(abs(preds[actual_col]).max(), abs(preds["ols_pred"]).max())
+    ax.plot([-lim, lim], [-lim, lim], color="red", linestyle="--", linewidth=1)
+    ax.set_xlabel(f"Actual forward {h}-month return")
+    ax.set_ylabel(f"OLS predicted forward {h}-month return")
+    ax.set_title(f"S&P 500 -- actual vs predicted ({h}m, out-of-sample)")
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _timeseries_pred_page(pdf: PdfPages, result: dict) -> None:
+    h = result["horizon_months"]
+    preds = result["predictions"]
+    actual_col = f"actual_fwd_{h}m_ret"
+    fig, ax = plt.subplots(figsize=(11, 5))
+    ax.plot(preds.index, preds[actual_col] * 100, label="Actual", color="black", linewidth=1)
+    ax.plot(preds.index, preds["ols_pred"] * 100, label="OLS predicted", color="seagreen", linewidth=1.2)
+    ax.axhline(0, color="grey", linewidth=0.6)
+    ax.set_ylabel("Forward return (%)")
+    ax.set_title(f"S&P 500 forward {h}-month return -- actual vs predicted over time")
+    ax.legend(loc="best")
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _feature_importance_page(pdf: PdfPages, result: dict) -> None:
+    h = result["horizon_months"]
+    coef_df = result["coefficients"]
+    fig, ax = plt.subplots(figsize=(9, 7))
+    colors = [
+        "seagreen" if c > 0 else "crimson"
+        for c in coef_df["ols_standardized_coef"]
+    ]
+    ax.barh(coef_df["feature"], coef_df["ols_standardized_coef"], color=colors)
+    ax.invert_yaxis()
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("Standardized OLS coefficient")
+    ax.set_title(f"Feature impact on {h}-month S&P 500 return")
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def write_pdf_report(
+    bundle: DataBundle,
+    results: dict[int, dict],
+    summary_text: str,
+    path: str,
+) -> None:
+    sns.set_theme(style="whitegrid")
+    with PdfPages(path) as pdf:
+        _cover_page(pdf, bundle, results)
+        _spx_drawdown_page(pdf, bundle)
+        for h in sorted(results):
+            result = results[h]
+            _feature_importance_page(pdf, result)
+            _fit_scatter_page(pdf, result)
+            _timeseries_pred_page(pdf, result)
+            # Top-features table page
+            top = result["coefficients"].head(10).copy()
+            top["ols_standardized_coef"] = top["ols_standardized_coef"].map(
+                lambda v: f"{v:+.4f}"
+            )
+            top["ols_pvalue"] = top["ols_pvalue"].map(lambda v: f"{v:.4f}")
+            top["ridge_standardized_coef"] = top["ridge_standardized_coef"].map(
+                lambda v: f"{v:+.4f}"
+            )
+            table_body = top[
+                ["feature", "ols_standardized_coef", "ols_pvalue", "ridge_standardized_coef"]
+            ].to_string(index=False)
+            _text_page(
+                pdf,
+                f"Top features -- {h}-month horizon",
+                table_body,
+            )
+        _text_page(pdf, "Full text summary", summary_text)
+
+
 def write_outputs(bundle: DataBundle, results: dict[int, dict]) -> None:
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -424,6 +604,11 @@ def write_outputs(bundle: DataBundle, results: dict[int, dict]) -> None:
     summary = "\n".join(lines)
     with open(os.path.join(RESULTS_DIR, "summary.txt"), "w") as fh:
         fh.write(summary)
+
+    pdf_path = os.path.join(RESULTS_DIR, "sp500_regression_report.pdf")
+    write_pdf_report(bundle, results, summary, pdf_path)
+    print(f"PDF report: {pdf_path}")
+
     print()
     print(summary)
 
