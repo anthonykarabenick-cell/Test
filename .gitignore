@@ -1,4 +1,5 @@
-results/
+results/*
+!results/sp500_regression_report.pdf
 __pycache__/
 *.pyc
 .venv/
