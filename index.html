@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lightline</title>
+<meta name="description" content="Upload a photo of your house and design its Christmas lights. See the result at night before you buy a single strand.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!--APP-->
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v3H9z" fill="currentColor" opacity=".55"/><path d="M12 6c-3.3 0-5 3.6-5 7.2C7 17.4 9.2 21 12 21s5-3.6 5-7.8C17 9.6 15.3 6 12 6z" fill="currentColor"/></svg>
+    <span class="brand-name">Lightline</span>
+    <span class="brand-tag">Holiday light planner</span>
+  </div>
+  <div class="top-actions">
+    <label class="btn btn-primary" for="file">Upload house photo</label>
+    <input type="file" id="file" accept="image/*" hidden>
+    <button type="button" class="btn" id="export">Save image</button>
+  </div>
+</header>
+
+<main class="app">
+  <section class="stage-col" aria-label="Design canvas">
+    <div class="toolbar" role="toolbar" aria-label="Tools">
+      <div class="seg" id="tools">
+        <button type="button" data-tool="draw" aria-pressed="true">Add lights <kbd>D</kbd></button>
+        <button type="button" data-tool="edit" aria-pressed="false">Select &amp; move <kbd>V</kbd></button>
+        <button type="button" data-tool="scale" aria-pressed="false">Set scale <kbd>S</kbd></button>
+      </div>
+      <div class="seg">
+        <button type="button" id="undo" title="Undo (Ctrl+Z)">Undo</button>
+        <button type="button" id="redo" title="Redo (Ctrl+Shift+Z)">Redo</button>
+      </div>
+      <button type="button" class="toggle" id="compare" aria-pressed="false">Before / after</button>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="canvas-wrap" id="wrap">
+        <canvas id="scene"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="drop-hint" id="dropHint" hidden>Drop the photo to load it</div>
+    </div>
+
+    <div class="hintbar">
+      <p id="hint" aria-live="polite"></p>
+      <div class="hint-actions">
+        <button type="button" class="btn btn-small btn-primary" id="finish" hidden>Finish strand</button>
+        <button type="button" class="btn btn-small" id="cancel" hidden>Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel" aria-label="Settings">
+    <div class="note" id="sampleNote">
+      <p><strong>This is a sample house.</strong> Upload a photo of yours to design its lights.</p>
+      <p class="note-tips">For best results, stand across the street and face the house straight on. Get the whole roofline in the frame and shoot in daylight or at dusk.</p>
+    </div>
+
+    <section class="group">
+      <h2>Scene</h2>
+      <div class="field">
+        <div class="field-head"><label for="night">Time of day</label><output id="nightOut">Night</output></div>
+        <input type="range" id="night" min="0" max="100" value="88">
+        <div class="ticks" aria-hidden="true"><span>Day</span><span>Dusk</span><span>Night</span></div>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="spill">Light on the house</label><output id="spillOut">70%</output></div>
+        <input type="range" id="spill" min="0" max="100" value="70">
+      </div>
+      <div class="field">
+        <span class="label" id="effectLabel">Effect</span>
+        <div class="seg seg-full" id="effect" role="group" aria-labelledby="effectLabel">
+          <button type="button" data-effect="steady" aria-pressed="true">Steady</button>
+          <button type="button" data-effect="twinkle" aria-pressed="false">Twinkle</button>
+          <button type="button" data-effect="chase" aria-pressed="false">Chase</button>
+          <button type="button" data-effect="fade" aria-pressed="false">Fade</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="group" id="lightsGroup">
+      <div class="group-head">
+        <h2 id="lightsHeading">Next strand</h2>
+        <button type="button" class="link-btn" id="deselect" hidden>Done editing</button>
+      </div>
+      <div class="field">
+        <span class="label" id="kindLabel">Type</span>
+        <div class="seg seg-full" id="kind" role="group" aria-labelledby="kindLabel">
+          <button type="button" data-kind="line" aria-pressed="true">String</button>
+          <button type="button" data-kind="icicle" aria-pressed="false">Icicle</button>
+          <button type="button" data-kind="net" aria-pressed="false">Net</button>
+        </div>
+        <p class="help" id="kindHelp"></p>
+      </div>
+      <div class="field">
+        <span class="label" id="paletteLabel">Color</span>
+        <div class="swatches" id="palette" role="group" aria-labelledby="paletteLabel"></div>
+      </div>
+      <div class="field">
+        <span class="label" id="bulbLabel">Bulb</span>
+        <div class="seg seg-full" id="bulb" role="group" aria-labelledby="bulbLabel">
+          <button type="button" data-bulb="mini" aria-pressed="false">Mini</button>
+          <button type="button" data-bulb="c7" aria-pressed="false">C7</button>
+          <button type="button" data-bulb="c9" aria-pressed="true">C9</button>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-head"><label for="spacing">Bulb spacing</label><output id="spacingOut">12 in</output></div>
+        <input type="range" id="spacing" min="3" max="24" step="1" value="12">
+      </div>
+      <button type="button" class="btn btn-danger btn-small" id="deleteStrand" hidden>Delete this strand</button>
+    </section>
+
+    <section class="group">
+      <div class="group-head">
+        <h2>Your design</h2>
+        <button type="button" class="link-btn" id="clearAll">Clear all</button>
+      </div>
+      <ol class="strands" id="strandList"></ol>
+      <p class="empty" id="strandEmpty" hidden>No lights yet. Pick <strong>Add lights</strong> and tap along your roofline.</p>
+      <div class="totals" id="totals"></div>
+    </section>
+
+    <section class="group">
+      <h2>Scale</h2>
+      <p class="help" id="scaleStatus"></p>
+      <form class="scale-form" id="scaleForm" hidden>
+        <span class="label">The line you drew is</span>
+        <div class="scale-inputs">
+          <input type="number" id="scaleFt" min="0" step="1" value="6" inputmode="numeric" aria-label="Feet"><span>ft</span>
+          <input type="number" id="scaleIn" min="0" max="11.9" step="0.5" value="8" inputmode="decimal" aria-label="Inches"><span>in</span>
+          <button type="submit" class="btn btn-small btn-primary">Apply</button>
+        </div>
+      </form>
+    </section>
+  </aside>
+</main>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<!--/APP-->
+<script src="app.js"></script>
+</body>
+</html>
